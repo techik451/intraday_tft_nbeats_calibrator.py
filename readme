@@ -1,0 +1,187 @@
+# Intraday TFT + N-BEATS + Calibrator (PyTorch)
+
+This repository contains a **one-file PyTorch starter model** combining:
+- A lightweight **Temporal Fusion Transformer (TFT)**-style encoder
+- A **N-BEATS** forecasting head
+- A **Platt-style calibrator** for classification calibration
+
+It is designed for **intraday futures trading (e.g., NQ, ES, CL)** setups — aiming for high consistency, low exposure, and robust inference.
+
+---
+
+## ⚙️ Features
+- Full PyTorch implementation, single file
+- Synthetic data generation for quick testing
+- Combined regression + classification objective
+- Calibrator for probability refinement
+- Volatility-targeted position sizing
+- Ready-to-train and deploy
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# Clone your repo
+python intraday_tft_nbeats_calibrator.py
+```
+
+The script will:
+1. Generate a synthetic intraday dataset
+2. Train the TFT + N-BEATS model
+3. Save the model and calibrator as `best_model.pt`
+4. Run an inference check on validation data
+
+---
+
+## 📦 Requirements
+
+```
+torch
+numpy
+pandas
+```
+
+(Optional for deployment)
+```
+fastapi
+uvicorn
+gunicorn
+```
+
+Install all dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 🧠 Training
+The model uses both regression (for expected returns) and classification (probability of positive return):
+
+```bash
+python intraday_tft_nbeats_calibrator.py
+```
+
+The best checkpoint and calibrator are automatically saved as `best_model.pt`.
+
+---
+
+## 🔮 Inference
+You can call inference on any new intraday sequence:
+
+```python
+from intraday_tft_nbeats_calibrator import IntradayModel, PlattCalibrator, predict_and_size, CONFIG
+import torch, numpy as np
+
+# Load saved model
+model = IntradayModel(input_dim=8, seq_len=CONFIG['seq_len'], cfg=CONFIG)
+calib = PlattCalibrator()
+ckpt = torch.load('best_model.pt', map_location='cpu')
+model.load_state_dict(ckpt['model_state'])
+calib.load_state_dict(ckpt['calib_state'])
+
+# Example inference
+seq = np.random.randn(CONFIG['seq_len'], 8).astype(np.float32)
+expected_ret, prob, size = predict_and_size(model, calib, seq, CONFIG, 'cpu')
+print(expected_ret, prob, size)
+```
+
+---
+
+## 🌐 Deploying on **Koyeb** (Free Tier)
+
+Koyeb offers a **free hosting tier** for web apps and APIs.
+
+### 1️⃣ Prepare project structure
+```
+app.py
+intraday_tft_nbeats_calibrator.py
+requirements.txt
+Procfile
+```
+
+### 2️⃣ Create `app.py`
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import numpy as np, torch, os
+from intraday_tft_nbeats_calibrator import IntradayModel, PlattCalibrator, predict_and_size, CONFIG
+
+app = FastAPI()
+
+MODEL_PATH = 'best_model.pt'
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+class PredictRequest(BaseModel):
+    seq: list
+
+@app.on_event('startup')
+def load_model():
+    global model, calib
+    model = IntradayModel(input_dim=8, seq_len=CONFIG['seq_len'], cfg=CONFIG)
+    calib = PlattCalibrator()
+    if os.path.exists(MODEL_PATH):
+        ckpt = torch.load(MODEL_PATH, map_location=device)
+        model.load_state_dict(ckpt['model_state'])
+        calib.load_state_dict(ckpt['calib_state'])
+    model.eval()
+    calib.eval()
+
+@app.post('/predict')
+def predict(req: PredictRequest):
+    seq = np.array(req.seq, dtype=np.float32)
+    expected_ret, prob, size = predict_and_size(model, calib, seq, CONFIG, device)
+    return {'expected': expected_ret, 'prob': prob, 'size': size}
+```
+
+### 3️⃣ Add `requirements.txt`
+```
+fastapi
+uvicorn
+gunicorn
+torch
+numpy
+pandas
+```
+
+### 4️⃣ Add `Procfile`
+```
+web: gunicorn app:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+```
+
+### 5️⃣ Deploy to Koyeb
+- Push your project to GitHub
+- Go to [https://www.koyeb.com](https://www.koyeb.com)
+- Create a **New App → GitHub Repository → Select your repo**
+- Koyeb will auto-build and deploy your FastAPI app
+- Access it via the public URL shown in your dashboard
+
+---
+
+## 🧾 Example API Request
+Send a POST request:
+```bash
+curl -X POST https://your-koyeb-app.koyeb.app/predict \
+  -H "Content-Type: application/json" \
+  -d '{"seq": [[0.1,0.2,...],[...],... ]}'
+```
+
+---
+
+## 🧰 Notes
+- Keep model lightweight (<100MB) for free-tier limits
+- Koyeb autosleeps inactive apps but restarts fast
+- Great for prototypes, small inference APIs, or dashboards
+
+---
+
+## 🧩 Next Steps
+- Add live data loader for your NQ futures feed
+- Integrate transaction-cost aware thresholding
+- Add FastAPI endpoint for batch scoring
+- Optionally move to Docker if GPU support is needed
+
+---
+
+**Author:** Quantitative Trading Model Starter (2025)
